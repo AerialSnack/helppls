@@ -16,29 +16,33 @@ struct Floor;
 
 #[derive(Component)]
 struct Player {
-    handle: usize
+    handle: usize,
 }
 
+// Input constants
 type Config = bevy_ggrs::GgrsConfig<u8, PeerId>;
-
 const INPUT_JUMP: u8 = 1 << 0;
 const INPUT_LEFT: u8 = 1 << 1;
 const INPUT_RIGHT: u8 = 1 << 2;
 const INPUT_STRIKE: u8 = 1 << 3;
 
-const GRAVITY: f32 = -9.81 * 5.0;
+// Physics constants
+const GRAVITY: f32 = -98.0;
+const PLAYER_SIZE: f32 = 1.0;
 const PLAYER_MASS: f32 = 1.0;
 const PLAYER_RESTITUTION: f32 = 0.3;
 const FLOOR_SIZE: Vec2 = Vec2::new(20.0, 0.5);
 const FLOOR_POSITION: Vec3 = Vec3::new(0.0, -4.0, 0.0);
 const PLAYER_MOVE_FORCE: f32 = 15.0;
 const PLAYER_JUMP_FORCE: f32 = 15.0;
+const FIXED_DELTA: f32 = 1.0 / 60.0;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(GgrsPlugin::<Config>::default())
             .add_plugins(PhysicsPlugins::default())
             .insert_resource(Gravity(Vec2::new(0.0, GRAVITY)))
+            .insert_resource(Time::<Fixed>::from_hz(60.0))
             .rollback_component_with_clone::<Transform>()
             .rollback_component_with_clone::<RigidBody>()
             .rollback_component_with_clone::<Collider>()
@@ -49,7 +53,6 @@ impl Plugin for GamePlugin {
             .rollback_component_with_clone::<Friction>()
             .rollback_component_with_clone::<Restitution>()
             .rollback_component_with_clone::<LockedAxes>()
-            .rollback_component_with_clone::<TransformInterpolation>()
             .add_systems(OnEnter(GameState::InGame), (setup, spawn_players, spawn_floor, start_matchbox_socket))
             .add_systems(Update, wait_for_players.run_if(in_state(GameState::InGame)))
             .add_systems(Update, handle_ggrs_events.run_if(in_state(GameState::InGame)))
@@ -123,7 +126,6 @@ fn setup(mut commands: Commands) {
             },
             ..OrthographicProjection::default_2d()
         },
-        TransformInterpolation,
     ));
 
     // Spawn waiting text
@@ -151,80 +153,103 @@ fn setup(mut commands: Commands) {
 }
 
 fn spawn_floor(mut commands: Commands) {
-    commands.spawn((
-        Floor,
-        Sprite {
+    // Create a static floor with Avian2D physics
+    commands.spawn(Floor)
+        .insert(Sprite {
             color: Color::srgb(0.5, 0.5, 0.5),
             custom_size: Some(FLOOR_SIZE),
             ..default()
-        },
-        Transform::from_translation(FLOOR_POSITION),
-        GlobalTransform::default(),
-        Visibility::default(),
-        InheritedVisibility::default(),
-        ViewVisibility::default(),
-        RigidBody::Static,
-        Collider::rectangle(FLOOR_SIZE.x, FLOOR_SIZE.y),
-        Friction::new(0.7),
-        Restitution::new(0.2),
-        TransformInterpolation,
-    )).add_rollback();
+        })
+        .insert(Transform::from_translation(FLOOR_POSITION))
+        .insert(GlobalTransform::default())
+        .insert(Visibility::default())
+        .insert(InheritedVisibility::default())
+        .insert(ViewVisibility::default())
+        .insert(RigidBody::Static)
+        .insert(Collider::rectangle(FLOOR_SIZE.x, FLOOR_SIZE.y))
+        .insert(Friction::new(0.7))
+        .insert(Restitution::new(0.2))
+        .add_rollback();
 }
 
 fn spawn_players(mut commands: Commands) {
     // Player 1
-    commands
-        .spawn((
-            Player { handle: 0 },
-            Sprite {
-                color: Color::srgb(0., 0.47, 1.),
-                custom_size: Some(Vec2::new(PLAYER_SIZE, PLAYER_SIZE)),
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(-2., 2., 0.)),
-            GlobalTransform::default(),
-            Visibility::default(),
-            InheritedVisibility::default(),
-            ViewVisibility::default(),
-            RigidBody::Dynamic,
-            Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
-            ColliderDensity(PLAYER_MASS),
-            Restitution::new(PLAYER_RESTITUTION),
-            Friction::new(0.2),
-            GravityScale(1.0),
-            LockedAxes::ROTATION_LOCKED,
-            TransformInterpolation,
-        ))
+    commands.spawn(Player { handle: 0 })
+        .insert(Sprite {
+            color: Color::srgb(0., 0.47, 1.),
+            custom_size: Some(Vec2::new(PLAYER_SIZE, PLAYER_SIZE)),
+            ..default()
+        })
+        .insert(Transform::from_translation(Vec3::new(-2., 2., 0.)))
+        .insert(GlobalTransform::default())
+        .insert(Visibility::default())
+        .insert(InheritedVisibility::default())
+        .insert(ViewVisibility::default())
+        .insert(RigidBody::Dynamic)
+        .insert(Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE))
+        .insert(ColliderDensity(PLAYER_MASS))
+        .insert(Restitution::new(PLAYER_RESTITUTION))
+        .insert(Friction::new(0.2))
+        .insert(GravityScale(1.0))
+        .insert(LockedAxes::ROTATION_LOCKED)
+        .insert(LinearVelocity::ZERO)
+        .insert(AngularVelocity::ZERO)
         .add_rollback();
 
     // Player 2
-    commands
-        .spawn((
-            Player { handle: 1 },
-            Sprite {
-                color: Color::srgb(0., 0.4, 0.),
-                custom_size: Some(Vec2::new(PLAYER_SIZE, PLAYER_SIZE)),
-                ..default()
-            },
-            Transform::from_translation(Vec3::new(2., 2., 0.)),
-            GlobalTransform::default(),
-            Visibility::default(),
-            InheritedVisibility::default(), 
-            ViewVisibility::default(),
-            RigidBody::Dynamic,
-            Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
-            ColliderDensity(PLAYER_MASS),
-            Restitution::new(PLAYER_RESTITUTION),
-            Friction::new(0.2),
-            GravityScale(1.0),
-            LockedAxes::ROTATION_LOCKED,
-            TransformInterpolation,
-        ))
+    commands.spawn(Player { handle: 1 })
+        .insert(Sprite {
+            color: Color::srgb(0., 0.4, 0.),
+            custom_size: Some(Vec2::new(PLAYER_SIZE, PLAYER_SIZE)),
+            ..default()
+        })
+        .insert(Transform::from_translation(Vec3::new(2., 2., 0.)))
+        .insert(GlobalTransform::default())
+        .insert(Visibility::default())
+        .insert(InheritedVisibility::default()) 
+        .insert(ViewVisibility::default())
+        .insert(RigidBody::Dynamic)
+        .insert(Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE))
+        .insert(ColliderDensity(PLAYER_MASS))
+        .insert(Restitution::new(PLAYER_RESTITUTION))
+        .insert(Friction::new(0.2))
+        .insert(GravityScale(1.0))
+        .insert(LockedAxes::ROTATION_LOCKED)
+        .insert(LinearVelocity::ZERO)
+        .insert(AngularVelocity::ZERO)
         .add_rollback();
 }
 
+fn move_players(
+    mut query: Query<(&mut LinearVelocity, &Transform, &Player)>,
+    inputs: Res<PlayerInputs<Config>>,
+) {
+    for (mut velocity, transform, player) in query.iter_mut() {
+        let (input, _) = inputs[player.handle];
+        
+        // Ground detection
+        let is_grounded = transform.translation.y <= FLOOR_POSITION.y + (FLOOR_SIZE.y / 2.0) + (PLAYER_SIZE / 2.0);
+        
+        // Reset horizontal velocity for better control
+        velocity.x = 0.0;
+        
+        // Apply movement
+        if input & INPUT_LEFT != 0 {
+            velocity.x = -PLAYER_MOVE_FORCE;
+        }
+        if input & INPUT_RIGHT != 0 {
+            velocity.x = PLAYER_MOVE_FORCE;
+        }
+        
+        // Jump only if we're on the ground and pressing jump
+        if is_grounded && input & INPUT_JUMP != 0 {
+            velocity.y = PLAYER_JUMP_FORCE;
+        }
+    }
+}
+
 fn start_matchbox_socket(mut commands: Commands) {
-    let room_url = "xxx";
+    let room_url = "ws://ec2-54-67-37-240.us-west-1.compute.amazonaws.com:3536/extreme_bevy?next=2";
     info!("connecting to matchbox server: {room_url}");
     commands.insert_resource(MatchboxSocket::new_unreliable(room_url));
 }
@@ -277,30 +302,4 @@ fn wait_for_players(
         .expect("failed to start session");
 
     commands.insert_resource(bevy_ggrs::Session::P2P(ggrs_session));
-}
-
-fn move_players(
-    mut players: Query<(&mut LinearVelocity, &Transform, &Player)>,
-    inputs: Res<PlayerInputs<Config>>,
-) {
-    for (mut velocity, transform, player) in &mut players {
-        let (input, _) = inputs[player.handle];
-        let mut movement = Vec2::ZERO;
-
-        let ground_y_pos = FLOOR_POSITION.y + (FLOOR_SIZE.y / 2.0) + (PLAYER_SIZE / 2.0) + 0.01;
-        let is_grounded = transform.translation.y <= ground_y_pos;
-
-        if input & INPUT_LEFT != 0 {
-            movement.x -= 1.0;
-        }
-        if input & INPUT_RIGHT != 0 {
-            movement.x += 1.0;
-        }
-        
-        velocity.x = movement.x * PLAYER_MOVE_FORCE;
-        
-        if is_grounded && input & INPUT_JUMP != 0 {
-            velocity.y = PLAYER_JUMP_FORCE;
-        }
-    }
 }
